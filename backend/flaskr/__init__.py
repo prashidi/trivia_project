@@ -1,8 +1,10 @@
 import os
+from unicodedata import category
 from flask import Flask, request, abort, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 import random
+from werkzeug.exceptions import HTTPException, NotFound, BadRequest
 
 from models import setup_db, Question, Category
 
@@ -44,8 +46,7 @@ def create_app(test_config=None):
 
     """
     @DONE:
-    Create an endpoint to handle GET requests
-    for all available categories.
+    Create an endpoint to handle GET requests for all available categories.
     """
     @app.route('/categories')
     def get_categories():
@@ -64,6 +65,8 @@ def create_app(test_config=None):
                 'categories': categories_dict
             })
 
+        except NotFound as not_found:
+            abort(404)
         except:
             abort(422)
 
@@ -84,21 +87,27 @@ def create_app(test_config=None):
     def get_questions():
         selection = Question.query.all()
         current_questions = paginate_questions(request, selection)
-        categories = Category.query.all()
-        categories_dict = {}
+        try:
+            categories = Category.query.all()
+            categories_dict = {}
 
-        if len(current_questions) == 0:
+            if len(current_questions) == 0:
+                abort(404)
+
+            for category in categories:
+                categories_dict[category.id] = category.type
+
+            return jsonify({
+                'success': True,
+                'questions': current_questions,
+                'totalQuestions': len(Question.query.all()),
+                'categories': categories_dict,
+            })
+
+        except NotFound as not_found:
             abort(404)
-
-        for category in categories:
-            categories_dict[category.id] = category.type
-
-        return jsonify({
-            'success': True,
-            'questions': current_questions,
-            'totalQuestions': len(Question.query.all()),
-            'categories': categories_dict,
-        })
+        except:
+            abort(422)
 
     """
     @DONE:
@@ -110,25 +119,27 @@ def create_app(test_config=None):
 
     @app.route('/questions/<int:question_id>', methods=['DELETE'])
     def delete_question(question_id):
-        question = Question.query.filter(
-            Question.id == question_id).one_or_none()
-
-        if question is None:
-            abort(404)
-
         try:
+            question = Question.query.filter(
+                Question.id == question_id).one_or_none()
+
+            if question is None:
+                abort(404)
+
             question.delete()
 
             return jsonify({
                 'success': True,
                 'deleted': question_id,
             })
+        except NotFound as not_found:
+            abort(404)
 
         except:
             abort(422)
 
     """
-    @TODO:
+    @DONE:
     Create an endpoint to POST a new question,
     which will require the question and answer text,
     category, and difficulty score.
@@ -149,6 +160,9 @@ def create_app(test_config=None):
         if new_question == None or new_answer == None or new_category == None or new_difficulty == None:
             abort(400)
 
+        if new_question == "" or new_answer == "" or new_category == "" or new_difficulty == "":
+            abort(400)
+
         try:
             question = Question(question=new_question, answer=new_answer,
                                 category=new_category, difficulty=new_difficulty)
@@ -161,11 +175,15 @@ def create_app(test_config=None):
                 'success': True,
                 'created': question.id
             })
+
+        except BadRequest as bad_request:
+            abort(400)
+
         except:
             abort(422)
 
     """
-    @TODO:
+    @DONE:
     Create a POST endpoint to get questions based on a search term.
     It should return any questions for whom the search term
     is a substring of the question.
@@ -195,7 +213,7 @@ def create_app(test_config=None):
         })
 
     """
-    @TODO:
+    @DONE:
     Create a GET endpoint to get questions based on category.
 
     TEST: In the "List" tab / main screen, clicking on one of the
@@ -227,7 +245,7 @@ def create_app(test_config=None):
             abort(422)
 
     """
-    @TODO:
+    @DONE:
     Create a POST endpoint to get questions to play the quiz.
     This endpoint should take category and previous question parameters
     and return a random questions within the given category,
@@ -248,28 +266,25 @@ def create_app(test_config=None):
             if quiz_category['id'] == 0:
                 selection = Question.query.all()
             else:
-                selection = Question.query.filter(
-                    Question.category == quiz_category['id']).all()
+                selection = Question.query.filter_by(category=quiz_category['id']).filter(
+                    Question.id.notin_(previous_questions)).all()
 
             random_question = random.randint(0, len(selection) - 1)
             next_question = selection[random_question]
 
-            while next_question.id not in previous_questions:
-                next_question = selection[random_question]
-                return jsonify({
-                    'success': True,
-                    'question': next_question.format()
-                })
-
+            return jsonify({
+                'success': True,
+                'question': next_question.format()
+            })
         except:
             abort(422)
 
     """
-    @TODO:
+    @DONE:
     Create error handlers for all expected errors
     including 404 and 422.
     """
-    @app.errorhandler(400)
+    @ app.errorhandler(400)
     def bad_request(error):
         return jsonify({
             "success": False,
@@ -277,7 +292,7 @@ def create_app(test_config=None):
             "message": "Bad request"
         }), 400
 
-    @app.errorhandler(404)
+    @ app.errorhandler(404)
     def not_found(error):
         return jsonify({
             "success": False,
@@ -285,7 +300,7 @@ def create_app(test_config=None):
             "message": "Resource not found"
         }), 404
 
-    @app.errorhandler(405)
+    @ app.errorhandler(405)
     def method_not_allowed(error):
         return jsonify({
             "success": False,
@@ -293,7 +308,7 @@ def create_app(test_config=None):
             "message": "Method not allowed"
         }), 405
 
-    @app.errorhandler(422)
+    @ app.errorhandler(422)
     def unprocessable(error):
         return jsonify({
             "success": False,
